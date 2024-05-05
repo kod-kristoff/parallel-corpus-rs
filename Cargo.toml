@@ -1,5 +1,5 @@
 [package]
-name = "graph-rs"
+name = "parallel-corpus"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,4 +9,5 @@ edition = "2021"
 regex = "1.10.4"
 
 [dev-dependencies]
+insta = "1.38.0"
 rstest = "0.19.0"

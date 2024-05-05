@@ -1,4 +1,9 @@
+use std::collections::HashMap;
+use std::fmt;
+
 // /** Parallel corpus as a graph */
+use super::shared;
+use super::shared::union_find;
 use crate::token;
 use crate::Token;
 // import * as R from 'ramda'
@@ -13,17 +18,37 @@ use crate::Token;
 #[cfg(test)]
 mod tests;
 
-// pub type Side = 'source' | 'target'
+pub enum Side {
+    Source,
+    Target,
+}
 
-// pub const opposite = (s: Side): Side => (s === 'source' ? 'target' : 'source')
+// pub let opposite = (s: Side): Side => (s === 'source' ? 'target' : 'source')
 
-// pub const sides = ['source', 'target'] as Side[]
+// pub let sides = ['source', 'target'] as Side[]
 
-// pub const sidecase = <T>(side: Side, s: T, t: T): T => (side === 'source' ? s : t)
+// pub let sidecase = <T>(side: Side, s: T, t: T): T => (side === 'source' ? s : t)
+pub struct SourceTarget<A> {
+    source: A,
+    target: A,
+}
 
-// pub fn mapSides<A, B>(g: SourceTarget<A>, f: (a: A, side: Side) => B): SourceTarget<B> {
-//   return {source: f(g.source, 'source'), target: f(g.target, 'target')}
-// }
+impl<A: fmt::Debug> fmt::Debug for SourceTarget<A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SourceTarget")
+            .field("source", &self.source)
+            .field("target", &self.target)
+            .finish()
+    }
+}
+
+pub fn map_sides<A, B>(g: &SourceTarget<A>, f: impl Fn(&A, Side) -> B) -> SourceTarget<B> {
+    SourceTarget {
+        source: f(&g.source, Side::Source),
+        target: f(&g.target, Side::Target),
+    }
+    //   return {source: f(g.source, 'source'), target: f(g.target, 'target')}
+}
 
 // pub interface SourceTarget<A> {
 //   readonly source: A
@@ -36,34 +61,46 @@ mod tests;
 // }
 #[derive(Debug)]
 pub struct Graph {
-    source: Vec<Token>,
+    source_target: SourceTarget<Vec<Token>>,
+    edges: Edges,
+    comment: Option<String>,
 }
 
 // pub type Edges = Record<string, Edge>
+pub type Edges = HashMap<String, Edge>;
 
-// pub interface Edge {
-//   /** a copy of the identifier used in the edges object of the graph */
-//   readonly id: string
-//   /** these are ids to source and target tokens */
-//   readonly ids: string[]
-//   /** labels on this edge */
-//   readonly labels: string[]
-//   /** is this manually or automatically aligned */
-//   readonly manual: boolean
-//   readonly comment?: string
-// }
+#[derive(Debug, PartialEq)]
+pub struct Edge {
+    /// a copy of the identifier used in the edges object of the graph
+    id: String,
+    /// these are ids to source and target tokens
+    ids: Vec<String>,
+    /// labels on this edge
+    labels: Vec<String>,
+    /// is this manually or automatically aligned
+    manual: bool,
+    comment: Option<String>,
+}
 
-// pub fn Edge(ids: string[], labels: string[], manual = false, comment?: string): Edge {
-//   const ids_sorted = ids.sort()
-//   const labels_nub = Utils.uniq(labels)
-//   return {
-//     id: 'e-' + ids_sorted.join('-'),
-//     ids: ids_sorted,
-//     labels: labels_nub,
-//     manual,
-//     ...(comment && labels_nub.some(is_comment_label) ? {comment} : {}),
-//   }
-// }
+impl Edge {
+    pub fn new(
+        mut ids: Vec<String>,
+        labels: Vec<String>,
+        manual: bool,
+        comment: Option<String>,
+    ) -> Edge {
+        ids.sort();
+        let labels_nub = shared::uniq(labels);
+        Edge {
+            id: format!("e-{}", ids.join("-")),
+            ids,
+            labels: labels_nub,
+            manual,
+            comment,
+            // ...(comment && labels_nub.some(is_comment_label) ? {comment} : {}),
+        }
+    }
+}
 
 // pub fn merge_edges(...es: Edge[]) {
 //   return Edge(
@@ -74,37 +111,39 @@ pub struct Graph {
 //   )
 // }
 
-// pub const zero_edge = merge_edges()
+// pub let zero_edge = merge_edges()
 
-// pub fn edge_record(es: Edge[]): Record<string, Edge> {
-//   const out = {} as Record<string, Edge>
-//   es.forEach(e => (out[e.id] = e))
-//   return out
-// }
+pub fn edge_record(es: Vec<Edge>) -> Edges {
+    let mut out = Edges::new();
+    es.into_iter().for_each(|e| {
+        out.insert(e.id.clone(), e);
+    });
+    out
+}
 
 // /** Checks that the invariant of the graph holds
 
 //   check_invariant(init('apa bepa cepa')) // => 'ok'
 
-//   const g0 = init('apa')
-//   const g = {...g0, edges: {'oops': g0.edges['e-s0-t0']}}
+//   let g0 = init('apa')
+//   let g = {...g0, edges: {'oops': g0.edges['e-s0-t0']}}
 //   check_invariant(g) !== 'ok' // => true
 
 // */
 // pub fn check_invariant(g: Graph): 'ok' | {violation: string; g: Graph} {
 //   try {
-//     const tokens = g.source.concat(g.target)
+//     let tokens = g.source.concat(g.target)
 //     {
-//       const unique_id = Utils.unique_check<string>()
+//       let unique_id = Utils.unique_check<string>()
 //       tokens.forEach(t => unique_id(t.id) || Utils.raise('Duplicate id: ' + t))
 //       record.forEach(
 //         g.edges,
 //         e => unique_id(e.id) || Utils.raise('Duplicate id from edges: ' + e.id)
 //       )
 //     }
-//     const check_tokens = (toks: string[]) => {
+//     let check_tokens = (toks: string[]) => {
 //       if (toks.length == 1) {
-//         const t = toks[0]
+//         let t = toks[0]
 //         t.match(/^\s*\S*\s*$/) || Utils.raise('Bad single token: ' + JSON.stringify(t))
 //       } else {
 //         toks.forEach(
@@ -136,7 +175,7 @@ pub struct Graph {
 //       e => R.equals(e, merge_edges(e)) || Utils.raise(`Edge not in normal form: ${Utils.show(e)}`)
 //     )
 //     {
-//       const token_ids = new Set(tokens.map(t => t.id))
+//       let token_ids = new Set(tokens.map(t => t.id))
 //       record.forEach(g.edges, e =>
 //         e.ids.forEach(id => {
 //           token_ids.has(id) || Utils.raise(`Edge ${Utils.show(e)} refers to unknown token ${id}`)
@@ -144,10 +183,10 @@ pub struct Graph {
 //       )
 //     }
 //     {
-//       const token_count = Utils.count<string>()
+//       let token_count = Utils.count<string>()
 //       record.forEach(g.edges, e => e.ids.forEach(id => token_count.inc(id)))
 //       tokens.forEach(tok => {
-//         const n = token_count.get(tok.id)
+//         let n = token_count.get(tok.id)
 //         n == 1 || Utils.raise('Token not appearing exactly once in edge lists: ' + tok.id)
 //       })
 //     }
@@ -177,10 +216,10 @@ pub struct Graph {
 /// Makes spans from an original text by tokenizing it and assumes no changes
 ///
 // # Examples
-//   const g = init('w1 w2')
-//   const source = [{text: 'w1 ', id: 's0'}, {text: 'w2 ', id: 's1'}]
-//   const target = [{text: 'w1 ', id: 't0'}, {text: 'w2 ', id: 't1'}]
-//   const edges = edge_record([Edge(['s0', 't0'], []), Edge(['s1', 't1'], [])])
+//   let g = init('w1 w2')
+//   let source = [{text: 'w1 ', id: 's0'}, {text: 'w2 ', id: 's1'}]
+//   let target = [{text: 'w1 ', id: 't0'}, {text: 'w2 ', id: 't1'}]
+//   let edges = edge_record([Edge(['s0', 't0'], []), Edge(['s1', 't1'], [])])
 //   g // => {source, target, edges}
 
 // */
@@ -196,9 +235,21 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
     //     target: T.identify(tokens, 't'),
     //     edges: edge_record(tokens.map((_, i) => Edge(['s' + i, 't' + i], [], manual))),
     //   })
-    Graph {
-        source: token::identify(tokens, "s"),
-    }
+    let edges = edge_record(
+        tokens
+            .iter()
+            .enumerate()
+            .map(|(i, _)| Edge::new(vec![format!("s{i}"), format!("t{i}")], vec![], manual, None))
+            .collect(),
+    );
+    align(Graph {
+        source_target: SourceTarget {
+            source: token::identify(tokens.clone(), "s"),
+            target: token::identify(tokens, "t"),
+        },
+        edges,
+        comment: None,
+    })
 }
 
 // pub fn empty(g: Graph): boolean {
@@ -207,12 +258,12 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 
 // /** Change or remove the graph-wide comment.
 
-//   const g0 = init('apa bepa')
-//   const g1 = set_comment(g0, 'foo')
+//   let g0 = init('apa bepa')
+//   let g1 = set_comment(g0, 'foo')
 //   g1.comment // => 'foo'
-//   const g2 = set_comment(g1)
+//   let g2 = set_comment(g1)
 //   g2.comment // => undefined
-//   const g3 = set_comment(g1, '')
+//   let g3 = set_comment(g1, '')
 //   g3.comment // => undefined
 //  */
 // pub fn set_comment(g: Graph, c?: string): Graph {
@@ -221,8 +272,8 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 
 // /** Clone a graph
 
-//   const g = init('apa bepa')
-//   const g2 = clone(g)                       // => g
+//   let g = init('apa bepa')
+//   let g2 = clone(g)                       // => g
 //   g2 == g                                   // => false
 //   g2.source == g.source                     // => false
 //   g2.edges['e-s0-t0'] == g.edges['e-s0-t0'] // => false
@@ -250,11 +301,11 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 
 // */
 // pub fn from_unaligned(st: SourceTarget<{text: string; labels: string[]}[]>): Graph {
-//   const edges: Record<string, Edge> = {}
-//   const g = mapSides(st, (toks, side) =>
+//   let edges: Record<string, Edge> = {}
+//   let g = mapSides(st, (toks, side) =>
 //     toks.map((tok, i) => {
-//       const id = side[0] + i
-//       const e = Edge([id], tok.labels, false)
+//       let id = side[0] + i
+//       let e = Edge([id], tok.labels, false)
 //       edges[id] = e
 //       return T.Token(tok.text, id)
 //     })
@@ -262,16 +313,16 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 //   return align({...g, edges})
 // }
 
-// /** Map from token ids to edges
+/// Map from token ids to edges
 
-//   const g = init('w')
-//   const e = Edge(['s0', 't0'], [])
-//   const lhs = [...edge_map(g).entries()]
-//   const rhs = [['s0', e], ['t0', e]]
+//   let g = init('w')
+//   let e = Edge(['s0', 't0'], [])
+//   let lhs = [...edge_map(g).entries()]
+//   let rhs = [['s0', e], ['t0', e]]
 //   lhs // => rhs
 
 // */
-// pub fn edge_map(g: Graph): Map<string, Edge> {
+pub fn edge_map(g: Graph) -> HashMap<String, Edge> {
 //   return new Map(
 //     Utils.flatten(record.traverse(g.edges, e => e.ids.map(id => [id, e] as [string, Edge])))
 //   )
@@ -279,18 +330,18 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 
 // /** The edges from a set of ids
 
-//   const g = init('w')
+//   let g = init('w')
 //   token_ids_to_edges(g, ['s0']) // => Object.values(g.edges)
 //   token_ids_to_edges(g, ['t0']) // => Object.values(g.edges)
 //   token_ids_to_edges(g, ['s0', 't0']) // => Object.values(g.edges)
 
 // */
 // pub fn token_ids_to_edges(g: Graph, ids: string[]): Edge[] {
-//   const em = edge_map(g)
-//   const out: Edge[] = []
-//   const first = Utils.unique_check<string>()
+//   let em = edge_map(g)
+//   let out: Edge[] = []
+//   let first = Utils.unique_check<string>()
 //   ids.forEach(id => {
-//     const e = em.get(id)
+//     let e = em.get(id)
 //     if (e && first(e.id)) {
 //       out.push(e)
 //     }
@@ -304,24 +355,24 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 
 // /** Find tokens by token ids and split by source or target.
 
-//   const g = init('a b c')
-//   const source = [g.source[1], g.source[2]]
-//   const target = [g.target[1], g.target[0]]
+//   let g = init('a b c')
+//   let source = [g.source[1], g.source[2]]
+//   let target = [g.target[1], g.target[0]]
 //   partition_ids(g)(['s1', 't1', 's2', 't0']) // => {source, target}
 
 // */
 // pub fn partition_ids(g: Graph): (ids: string[]) => SourceTarget<Token[]> {
-//   const sm = source_map(g)
-//   const tm = target_map(g)
+//   let sm = source_map(g)
+//   let tm = target_map(g)
 //   return ids => {
-//     const source = [] as Token[]
-//     const target = [] as Token[]
+//     let source = [] as Token[]
+//     let target = [] as Token[]
 //     ids.forEach(id => {
-//       const s = sm.get(id)
+//       let s = sm.get(id)
 //       if (s !== undefined) {
 //         source.push(g.source[s])
 //       }
-//       const t = tm.get(id)
+//       let t = tm.get(id)
 //       if (t !== undefined) {
 //         target.push(g.target[t])
 //       }
@@ -334,15 +385,15 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 
 // /** Map from token identifiers to sided offsets
 
-//   const g = init('a b c')
-//   const m = token_map(g)
+//   let g = init('a b c')
+//   let m = token_map(g)
 //   m.get('s0') // => {side: 'source', index: 0}
 //   m.get('s1') // => {side: 'source', index: 1}
 //   m.get('t0') // => {side: 'target', index: 0}
 
 // */
 // pub fn token_map(g: Graph): Map<string, SidedIndex> {
-//   const m = mapSides(g, (tokens, side) =>
+//   let m = mapSides(g, (tokens, side) =>
 //     tokens.map((token, index) => [token.id, {side, index}] as [string, SidedIndex])
 //   )
 //   return new Map([...m.source, ...m.target])
@@ -350,8 +401,8 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 
 // /** Map from source identifiers to offsets
 
-//   const g = init('a b c')
-//   const m = source_map(g)
+//   let g = init('a b c')
+//   let m = source_map(g)
 //   m.get('s0') // => 0
 //   m.get('s1') // => 1
 //   m.has('t0') // => false
@@ -363,8 +414,8 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 
 // /** Map from target identifiers to offsets
 
-//   const g = init('a b c')
-//   const m = target_map(g)
+//   let g = init('a b c')
+//   let m = target_map(g)
 //   m.get('t0') // => 0
 //   m.get('t1') // => 1
 //   m.has('s0') // => false
@@ -376,18 +427,18 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 
 // /** The edge at a position (in the target text)
 
-//   const g = init('apa bepa cepa')
+//   let g = init('apa bepa cepa')
 //   edge_at(g, 1) // => Edge(['s1', 't1'], [])
 
 // */
 // pub fn edge_at(g: Graph, index: number, side: Side = 'target'): Edge {
-//   const token_id = g[side][index].id
+//   let token_id = g[side][index].id
 //   return edge_map(g).get(token_id) || Utils.raise('Out of bounds: ' + JSON.stringify({g, index}))
 // }
 
 // /** The related ids at a position (in the target text)
 
-//   const g = init('apa bepa cepa')
+//   let g = init('apa bepa cepa')
 //   related(g, 1) // => ['s1', 't1']
 
 // */
@@ -442,9 +493,9 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 
 // /** Replace the text at some position, merging the spans it touches upon.
 
-//   const show = (g: Graph) => g.target.map(t => t.text)
-//   const ids = (g: Graph) => g.target.map(t => t.id).join(' ')
-//   const g = init('test graph hello')
+//   let show = (g: Graph) => g.target.map(t => t.text)
+//   let ids = (g: Graph) => g.target.map(t => t.id).join(' ')
+//   let g = init('test graph hello')
 //   show(g) // => ['test ', 'graph ', 'hello ']
 //   show(unaligned_modify(g, 0, 0, 'new')) // => ['newtest ', 'graph ', 'hello ']
 //   show(unaligned_modify(g, 0, 1, 'new')) // => ['newest ', 'graph ', 'hello ']
@@ -465,23 +516,23 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 //   text: string,
 //   side: Side = 'target'
 // ): Graph {
-//   const tokens = get_side_texts(g, side)
-//   const {token: from_token, offset: from_ix} = T.token_at(tokens, from)
-//   const pre = (tokens[from_token] || '').slice(0, from_ix)
+//   let tokens = get_side_texts(g, side)
+//   let {token: from_token, offset: from_ix} = T.token_at(tokens, from)
+//   let pre = (tokens[from_token] || '').slice(0, from_ix)
 //   if (to === get_side_text(g, side).length) {
 //     return unaligned_modify_tokens(g, from_token, g[side].length, pre + text, side)
 //   } else {
-//     const {token: to_token, offset: to_ix} = T.token_at(tokens, to)
-//     const post = (tokens[to_token] || '').slice(to_ix)
+//     let {token: to_token, offset: to_ix} = T.token_at(tokens, to)
+//     let post = (tokens[to_token] || '').slice(to_ix)
 //     return unaligned_modify_tokens(g, from_token, to_token + 1, pre + text + post, side)
 //   }
 // }
 
 // /** Replace the text at some position, merging the spans it touches upon.
 
-//   const show = (g: Graph) => g.target.map(t => t.text)
-//   const ids = (g: Graph) => g.target.map(t => t.id).join(' ')
-//   const g = init('test graph hello')
+//   let show = (g: Graph) => g.target.map(t => t.text)
+//   let ids = (g: Graph) => g.target.map(t => t.id).join(' ')
+//   let g = init('test graph hello')
 //   show(g) // => ['test ', 'graph ', 'hello ']
 //   show(unaligned_modify_tokens(g, 0, 0, 'this '))     // => ['this ', 'test ', 'graph ', 'hello ']
 //   show(unaligned_modify_tokens(g, 0, 1, 'this '))     // => ['this ', 'graph ', 'hello ']
@@ -499,8 +550,8 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 //   ids(unaligned_modify_tokens(g, 0, 0, 'this '))     // => 't3 t0 t1 t2'
 //   ids(unaligned_modify_tokens(g, 0, 1, 'this '))     // => 't3 t1 t2'
 //   ids(unaligned_modify_tokens(g, 0, 1, 'this'))      // => 't3 t2'
-//   const showS = (g: Graph) => g.source.map(t => t.text)
-//   const idsS = (g: Graph) => g.source.map(t => t.id).join(' ')
+//   let showS = (g: Graph) => g.source.map(t => t.text)
+//   let idsS = (g: Graph) => g.source.map(t => t.id).join(' ')
 //   showS(unaligned_modify_tokens(g, 0, 0, 'this ', 'source')) // => ['this ', 'test ', 'graph ', 'hello ']
 //   idsS(unaligned_modify_tokens(g, 0, 0, 'this ', 'source'))  // => 's3 s0 s1 s2'
 
@@ -537,14 +588,14 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 //     return unaligned_modify_tokens(g, from - 1, to, g[side][from - 1].text + text, side)
 //   }
 
-//   const id_offset = next_id(g)
-//   const tokens = T.tokenize(text).map((t, i) => Token(t, side[0] + (id_offset + i)))
-//   const [new_tokens, removed] = Utils.splice(g[side], from, to - from, ...tokens)
-//   const ids_removed = new Set(removed.map(t => t.id))
-//   const new_edge_ids = new Set<string>(tokens.map(t => t.id))
-//   const new_edge_labels = new Set<string>()
+//   let id_offset = next_id(g)
+//   let tokens = T.tokenize(text).map((t, i) => Token(t, side[0] + (id_offset + i)))
+//   let [new_tokens, removed] = Utils.splice(g[side], from, to - from, ...tokens)
+//   let ids_removed = new Set(removed.map(t => t.id))
+//   let new_edge_ids = new Set<string>(tokens.map(t => t.id))
+//   let new_edge_labels = new Set<string>()
 //   let new_edge_manual = false
-//   const edges = record.filter(g.edges, e => {
+//   let edges = record.filter(g.edges, e => {
 //     if (e.ids.some(id => ids_removed.has(id))) {
 //       e.ids.forEach(id => ids_removed.has(id) || new_edge_ids.add(id))
 //       e.labels.forEach(lbl => new_edge_labels.add(lbl))
@@ -555,7 +606,7 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 //     }
 //   })
 //   if (new_edge_ids.size > 0) {
-//     const e = Edge([...new_edge_ids], [...new_edge_labels], new_edge_manual)
+//     let e = Edge([...new_edge_ids], [...new_edge_labels], new_edge_manual)
 //     edges[e.id] = e
 //   }
 //   return {...g, [side]: new_tokens, edges}
@@ -588,11 +639,11 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 // Indexes are token offsets
 // */
 // pub fn unaligned_rearrange(g: Graph, begin: number, end: number, dest: number): Graph {
-//   const em = edge_map(g)
-//   const edge_ids_to_update = new Set(
+//   let em = edge_map(g)
+//   let edge_ids_to_update = new Set(
 //     g.target.slice(begin, end + 1).map(t => (em.get(t.id) as Edge).id)
 //   )
-//   const new_edges = {} as Record<string, Edge>
+//   let new_edges = {} as Record<string, Edge>
 //   edge_ids_to_update.forEach(id => {
 //     new_edges[id] = merge_edges(g.edges[id], Edge([], [], true))
 //   })
@@ -609,9 +660,9 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 // }
 
 // pub fn unaligned_set_side(g: Graph, side: Side, text: string): Graph {
-//   const text0 = get_side_text(g, side)
-//   const {from, to} = Utils.edit_range(text0, text)
-//   const new_text = text.slice(from, text.length - (text0.length - to))
+//   let text0 = get_side_text(g, side)
+//   let {from, to} = Utils.edit_range(text0, text)
+//   let new_text = text.slice(from, text.length - (text0.length - to))
 //   return unaligned_modify(g, from, to, new_text, side)
 // }
 
@@ -661,18 +712,18 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 
 // /** Revert at an edge id */
 // pub fn unaligned_revert(g: Graph, edge_ids: string[]): Graph {
-//   const edge_set = new Set(edge_ids)
-//   const diff = calculate_dnd_diff(g)
+//   let edge_set = new Set(edge_ids)
+//   let diff = calculate_dnd_diff(g)
 //   let supply = next_id(g)
-//   const edges = record.filter(g.edges, (_, id) => !edge_set.has(id))
-//   const reverted = Utils.flatMap(
+//   let edges = record.filter(g.edges, (_, id) => !edge_set.has(id))
+//   let reverted = Utils.flatMap(
 //     diff,
 //     D.dnd_match({
 //       Dragged(d) {
 //         if (edge_set.has(d.id)) {
-//           const s = d.source
-//           const t = {...d.source, id: 't' + supply++}
-//           const e = Edge([s.id, t.id], [])
+//           let s = d.source
+//           let t = {...d.source, id: 't' + supply++}
+//           let e = Edge([s.id, t.id], [])
 //           edges[e.id] = e
 //           return [D.Dragged(s, e.id, false), D.Dropped(t, e.id, false)]
 //         } else {
@@ -698,12 +749,12 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 
 // /** Connect edges by ids */
 // pub fn connect(g: Graph, edge_ids: string[]): Graph {
-//   const edges = record.filter(g.edges, (e, _) => !edge_ids.some(id => id == e.id))
-//   const es = record.traverse(
+//   let edges = record.filter(g.edges, (e, _) => !edge_ids.some(id => id == e.id))
+//   let es = record.traverse(
 //     record.filter(g.edges, (e, _) => edge_ids.some(id => id == e.id)),
 //     e => e
 //   )
-//   const edge = merge_edges(...es, Edge([], [], true))
+//   let edge = merge_edges(...es, Edge([], [], true))
 //   edges[edge.id] = edge
 //   return align({...g, edges})
 // }
@@ -713,13 +764,13 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 //   if (ids.length == 0) {
 //     return align(g)
 //   }
-//   const id = ids[0]
-//   const em = edge_map(g)
-//   const edge = em.get(id)
+//   let id = ids[0]
+//   let em = edge_map(g)
+//   let edge = em.get(id)
 //   if (edge) {
-//     const edge_without = Edge(edge.ids.filter(i => i != id), edge.labels, true, edge.comment)
-//     const edge_with = Edge([id], [], true, edge.comment)
-//     const edges = record.filter(g.edges, (_, id) => id != edge.id)
+//     let edge_without = Edge(edge.ids.filter(i => i != id), edge.labels, true, edge.comment)
+//     let edge_with = Edge([id], [], true, edge.comment)
+//     let edges = record.filter(g.edges, (_, id) => id != edge.id)
 //     edges[edge_with.id] = edge_with
 //     if (edge_without.ids.length > 0) {
 //       edges[edge_without.id] = edge_without
@@ -733,8 +784,8 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 
 // /** Get the index of the first token of an edge.
 
-//   const g = init('apa bepa cepa ')
-//   const e = g.edges['e-s1-t1']
+//   let g = init('apa bepa cepa ')
+//   let e = g.edges['e-s1-t1']
 //   edge_first_index(g, e, 'source') // => 1
 
 //  */
@@ -748,8 +799,8 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 
 // /** Group edges into groups of consecutive tokens.
 
-//   const g = init('apa bepa cepa depa ')
-//   const es = [g.edges['e-s0-t0'], g.edges['e-s1-t1'], g.edges['e-s3-t3']]
+//   let g = init('apa bepa cepa depa ')
+//   let es = [g.edges['e-s0-t0'], g.edges['e-s1-t1'], g.edges['e-s3-t3']]
 //   group_consecutive(g, es, 'source') // => [[es[0], es[1]], [es[2]]]
 
 //  */
@@ -781,68 +832,70 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 
 // /** Create edges automatically between similar sequences of tokens.
 
-//   const g0 = {...init('a bc d')}
-//   const g = unaligned_set_side(g0, 'target', 'ab c d')
+//   let g0 = {...init('a bc d')}
+//   let g = unaligned_set_side(g0, 'target', 'ab c d')
 //   Object.values(align(g).edges).length // => 2
 // */
-// pub fn align(g: Graph): Graph {
-//   // Use a union-find to group characters into edges.
-//   const uf = Utils.PolyUnionFind<string>(u => u)
-//   const em = Utils.chain(edge_map(g), m => (id: string): Edge =>
-//     m.get(id) || Utils.raise(`Token id ${id} not in edge map`)
-//   )
+pub fn align(g: Graph) -> Graph {
+    // Use a union-find to group characters into edges.
+    let uf = union_find::PolyUnionFind::<String>::new(|u| u.clone());
+    //   let em = Utils.chain(edge_map(g), m => (id: string): Edge =>
+    //     m.get(id) || Utils.raise(`Token id ${id} not in edge map`)
+    //   )
 
-//   {
-//     // Character by character, what was deleted and inserted?
-//     const chars = mapSides(g, tokens =>
-//       Utils.flatMap(tokens.filter(token => !em(token.id).manual), to_char_ids)
-//     )
-//     const char_diff = Utils.hdiff(chars.source, chars.target, u => u.char, u => u.char)
+    //   {
+    // Character by character, what was deleted and inserted?
+    // let chars = map_sides(&g.source_target, |tokens, _| tokens.iter().filter(|token| ));
+    //     let chars = mapSides(g, tokens =>
+    //       Utils.flatMap(tokens.filter(token => !em(token.id).manual), to_char_ids)
+    //     )
+    //     let char_diff = Utils.hdiff(chars.source, chars.target, u => u.char, u => u.char)
 
-//     // For any unchanged character, unify its source and target tokens.
-//     // If source is "a bc" and target is "ab c", all characters will be unified to the same group.
-//     // The union-find operates over token ids, so an edge is represented by a "root" token id.
-//     char_diff.forEach(c => {
-//       if (c.change == 0) {
-//         // these undefined makes the alignment skip spaces.
-//         // they originate from to_char_ids
-//         if (c.a.id !== undefined && c.b.id !== undefined) {
-//           uf.union(c.a.id, c.b.id)
-//         }
-//       }
-//     })
-//   }
+    //     // For any unchanged character, unify its source and target tokens.
+    //     // If source is "a bc" and target is "ab c", all characters will be unified to the same group.
+    //     // The union-find operates over token ids, so an edge is represented by a "root" token id.
+    //     char_diff.forEach(c => {
+    //       if (c.change == 0) {
+    //         // these undefined makes the alignment skip spaces.
+    //         // they originate from to_char_ids
+    //         if (c.a.id !== undefined && c.b.id !== undefined) {
+    //           uf.union(c.a.id, c.b.id)
+    //         }
+    //       }
+    //     })
+    //   }
 
-//   // Use manual edges as they are.
-//   const proto_edges = record.filter(g.edges, e => !!e.manual)
+    //   // Use manual edges as they are.
+    //   let proto_edges = record.filter(g.edges, e => !!e.manual)
 
-//   const first = Utils.unique_check<string>()
+    //   let first = Utils.unique_check<string>()
 
-//   mapSides(g, (tokens, side) =>
-//     tokens.forEach(token => {
-//       let e_repr = em(token.id)
-//       // Skip manual edges, they have already been added.
-//       if (!e_repr.manual) {
-//         // Use the labels from the old edge.
-//         const labels = first(e_repr.id) ? e_repr.labels : []
-//         // New edges are temporarily keyed by the "root" token id.
-//         // Merge a single-token edge into the edge that has the same "root" token.
-//         // Or add as a new edge if there is no such edge yet.
-//         const e_token = Edge([token.id], labels, false, e_repr.comment)
-//         record.modify(proto_edges, uf.find(token.id), zero_edge, e => merge_edges(e, e_token))
-//       }
-//     })
-//   )
+    //   mapSides(g, (tokens, side) =>
+    //     tokens.forEach(token => {
+    //       let e_repr = em(token.id)
+    //       // Skip manual edges, they have already been added.
+    //       if (!e_repr.manual) {
+    //         // Use the labels from the old edge.
+    //         let labels = first(e_repr.id) ? e_repr.labels : []
+    //         // New edges are temporarily keyed by the "root" token id.
+    //         // Merge a single-token edge into the edge that has the same "root" token.
+    //         // Or add as a new edge if there is no such edge yet.
+    //         let e_token = Edge([token.id], labels, false, e_repr.comment)
+    //         record.modify(proto_edges, uf.find(token.id), zero_edge, e => merge_edges(e, e_token))
+    //       }
+    //     })
+    //   )
 
-//   // Re-key edges.
-//   const edges = edge_record(record.traverse(proto_edges, e => e))
+    //   // Re-key edges.
+    //   let edges = edge_record(record.traverse(proto_edges, e => e))
 
-//   return {...g, edges}
-// }
+    // Graph { edges, ..g }
+    g
+}
 
 // interface ScoreDiffPair {
 //   score: number
-//   // A reversed list of the way back (Instead of constructing it from back links)
+//   // A reversed list of the way back (Instead of letructing it from back links)
 //   diff: Utils.LazySnocList<D.Diff>
 // }
 
@@ -854,7 +907,7 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 // locations that all should be close to each other. This was done using
 // the diff algorithm before but the results were subpar, see #32
 
-//   const expect: D.Diff[] = [
+//   let expect: D.Diff[] = [
 //     {
 //       edit: 'Dragged',
 //       source: {text: 'apa ', id: 's0'},
@@ -882,10 +935,10 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 //       manual: true
 //     }
 //   ]
-//   const g = calculate_diff(rearrange(init('apa bepa cepa ', true), 1, 2, 0))
+//   let g = calculate_diff(rearrange(init('apa bepa cepa ', true), 1, 2, 0))
 //   g // => expect
 
-//   const expect: D.Diff[] = [
+//   let expect: D.Diff[] = [
 //     {
 //       edit: 'Edited',
 //       source: [{text: 'apa ', id: 's0'}],
@@ -911,7 +964,7 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 //       manual: true
 //     }
 //   ]
-//   const g = calculate_diff(modify_tokens(init('apa bepa cepa ', true), 1, 2, 'depa epa '))
+//   let g = calculate_diff(modify_tokens(init('apa bepa cepa ', true), 1, 2, 'depa epa '))
 //   g // => expect
 
 // */
@@ -919,13 +972,13 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 //   g: Graph,
 //   order_changing_label: (s: string) => boolean = () => false
 // ): D.Diff[] {
-//   const m = edge_map(g)
-//   const lookup = (tok: Token) => m.get(tok.id) as Edge
+//   let m = edge_map(g)
+//   let lookup = (tok: Token) => m.get(tok.id) as Edge
 
-//   const I = g.source.length
-//   const J = g.target.length
+//   let I = g.source.length
+//   let J = g.target.length
 
-//   const OPT: ScoreDiffPair[][] = new Array(I + 1)
+//   let OPT: ScoreDiffPair[][] = new Array(I + 1)
 //     .fill({})
 //     .map(i => new Array(J + 1).fill({score: 0, diff: null}))
 
@@ -939,16 +992,16 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 
 //   for (let i = -1; i < I; ++i) {
 //     for (let j = -1; j < J; ++j) {
-//       const cands: ScoreDiffPair[] = []
-//       const same = (ii: number, jj: number) =>
+//       let cands: ScoreDiffPair[] = []
+//       let same = (ii: number, jj: number) =>
 //         ii >= 0 && jj >= 0 && lookup(g.source[ii]).id === lookup(g.target[jj]).id
 //       if (i >= 0 && j >= 0 && same(i, j)) {
 //         let ii = i
 //         let jj = j
 //         while (same(--ii, j));
 //         while (same(i, --jj));
-//         const edge = lookup(g.source[i])
-//         const {score, diff} = opt(ii, jj)
+//         let edge = lookup(g.source[i])
+//         let {score, diff} = opt(ii, jj)
 //         let factor = 1
 //         if (edge.manual) {
 //           factor *= 0.01
@@ -970,27 +1023,27 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 //         })
 //       }
 //       if (j >= 0) {
-//         const {score, diff} = opt(i, j - 1)
-//         const edge = lookup(g.target[j])
+//         let {score, diff} = opt(i, j - 1)
+//         let edge = lookup(g.target[j])
 //         cands.push({score, diff: Utils.snoc(diff, D.Dropped(g.target[j], edge.id, !!edge.manual))})
 //       }
 //       if (i >= 0) {
-//         const {score, diff} = opt(i - 1, j)
-//         const edge = lookup(g.source[i])
+//         let {score, diff} = opt(i - 1, j)
+//         let edge = lookup(g.source[i])
 //         cands.push({score, diff: Utils.snoc(diff, D.Dragged(g.source[i], edge.id, !!edge.manual))})
 //       }
 //       OPT[i + 1][j + 1] = R.sortBy(x => -x.score, cands)[0]
 //     }
 //   }
 
-//   const {score, diff} = opt(I - 1, J - 1)
-//   const arr = Utils.snocsToArray(diff)
+//   let {score, diff} = opt(I - 1, J - 1)
+//   let arr = Utils.snocsToArray(diff)
 //   return arr
 // }
 
 // /**
 
-//   const diff: D.Diff[] = [
+//   let diff: D.Diff[] = [
 //     {
 //       edit: 'Edited',
 //       source: [{text: 'a ', id: 's0'}],
@@ -1009,7 +1062,7 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 //       manual: true
 //     }
 //   ]
-//   const expected: D.Diff[] = [
+//   let expected: D.Diff[] = [
 //     {edit: 'Dragged', source: {text: 'a ', id: 's0'}, id: 'e0', manual: true},
 //     {edit: 'Dropped', target: {text: 'b ', id: 't0'}, id: 'e0', manual: true},
 //     {edit: 'Dragged', source: {text: 'c ', id: 's1'}, id: 'e1', manual: true},
@@ -1046,9 +1099,9 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 //   diff: (D.Dragged | D.Dropped)[],
 //   edges0: Record<string, Edge>
 // ): Graph {
-//   const source = [] as Token[]
-//   const target = [] as Token[]
-//   const edges = R.clone(edges0)
+//   let source = [] as Token[]
+//   let target = [] as Token[]
+//   let edges = R.clone(edges0)
 //   diff.forEach(d =>
 //     record.modify(edges, d.id, zero_edge, e => merge_edges(e, Edge([], [], d.manual)))
 //   )
@@ -1063,9 +1116,9 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 
 // /**
 
-//   const g = modify_tokens(init('apa bepa cepa '), 1, 2, 'depa epa ')
-//   const diff = calculate_diff(g)
-//   const g2 = diff_to_graph(diff, g.edges)
+//   let g = modify_tokens(init('apa bepa cepa '), 1, 2, 'depa epa ')
+//   let diff = calculate_diff(g)
+//   let g2 = diff_to_graph(diff, g.edges)
 //   g2 // => g
 
 // */
@@ -1090,7 +1143,7 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 // }
 
 // pub fn subspan_to_indicies(subspan: Subspan): SidedIndex[] {
-//   const span_to_indicies = (side: Side) => [
+//   let span_to_indicies = (side: Side) => [
 //     {side, index: subspan[side].begin},
 //     {side, index: subspan[side].end},
 //   ]
@@ -1099,18 +1152,18 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 
 // /** Gets the sentence in the target text around some offset(s)
 
-//   const g = init('apa bepa . Cepa depa . epa ', true)
+//   let g = init('apa bepa . Cepa depa . epa ', true)
 //   sentences(g, 0) // => {source: {begin: 0, end: 2}, target: {begin: 0, end: 2}}
 //   sentences(g, 1) // => {source: {begin: 0, end: 2}, target: {begin: 0, end: 2}}
 //   sentences(g, 2) // => {source: {begin: 0, end: 2}, target: {begin: 0, end: 2}}
 //   sentences(g, 3) // => {source: {begin: 3, end: 5}, target: {begin: 3, end: 5}}
-//   const g2 = modify_tokens(g, 1, 4, 'uff ! Hepp plepp ')
+//   let g2 = modify_tokens(g, 1, 4, 'uff ! Hepp plepp ')
 //   target_text(g2) // => 'apa uff ! Hepp plepp depa . epa '
 //   sentences(g2, 0) // => {source: {begin: 0, end: 5}, target: {begin: 0, end: 6}}
 //   sentences(g2, 1) // => {source: {begin: 0, end: 5}, target: {begin: 0, end: 6}}
 //   sentences(g2, 2) // => {source: {begin: 0, end: 5}, target: {begin: 0, end: 6}}
 //   sentences(g2, 3) // => {source: {begin: 0, end: 5}, target: {begin: 0, end: 6}}
-//   const g3 = modify_tokens(g, 6, 7, '')
+//   let g3 = modify_tokens(g, 6, 7, '')
 //   target_text(g3) // => 'apa bepa . Cepa depa . '
 //   sentences(g3, 4) // => {source: {begin: 3, end: 6}, target: {begin: 3, end: 5}}
 //   sentences(g3, 5) // => {source: {begin: 3, end: 6}, target: {begin: 3, end: 5}}
@@ -1122,27 +1175,27 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 
 // /** Gets the sentences around some indicies */
 // pub fn sentences_around(g: Graph, indicies: SidedIndex[]): Subspan {
-//   const starts = Utils.PolyUnionFind<SidedIndex>()
-//   const bounds = mapSides(g, (tokens, side) => {
-//     const bs = T.sentence_starts(T.texts(tokens))
+//   let starts = Utils.PolyUnionFind<SidedIndex>()
+//   let bounds = mapSides(g, (tokens, side) => {
+//     let bs = T.sentence_starts(T.texts(tokens))
 //     bs.forEach((start, index) => {
 //       starts.union({side, index}, {side, index: start})
 //     })
 //     return bs
 //   })
-//   const m = token_map(g)
+//   let m = token_map(g)
 //   record.forEach(g.edges, e => {
-//     const ids = e.ids.map(id => m.get(id) as SidedIndex)
+//     let ids = e.ids.map(id => m.get(id) as SidedIndex)
 //     starts.unions(ids)
 //   })
 //   starts.unions(indicies)
 
-//   const main = indicies[0]
+//   let main = indicies[0]
 
 //   // grr-ish: we want to get the "minimal" representative now, but have to loop over
 //   // all positions to check.
-//   const em = edge_map(g)
-//   const main_repr = starts.repr(main)
+//   let em = edge_map(g)
+//   let main_repr = starts.repr(main)
 //   return mapSides(g, (tokens, side) => {
 //     // If sentence starts or ends with only removed tokens we slurp these straggler tokens:
 //     fn pad_missing(d: number, index: number): number {
@@ -1152,16 +1205,16 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 //       if (index >= tokens.length) {
 //         return tokens.length - 1
 //       }
-//       const adjacent = tokens[index + d]
+//       let adjacent = tokens[index + d]
 //       if (!adjacent) {
 //         return index
 //       }
-//       const edge = em.get(adjacent.id)
+//       let edge = em.get(adjacent.id)
 //       if (!edge) {
 //         return index
 //       }
-//       const all_on_this_side = edge.ids.every(id => {
-//         const token = m.get(id)
+//       let all_on_this_side = edge.ids.every(id => {
+//         let token = m.get(id)
 //         return token ? token.side == side : false
 //       })
 //       if (!all_on_this_side) {
@@ -1187,24 +1240,24 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 //   if (begin >= g.target.length) {
 //     return []
 //   } else {
-//     const s = sentences(g, begin)
+//     let s = sentences(g, begin)
 //     return [s].concat(all_sentences(g, s.target.end + 1))
 //   }
 // }
 
 // /** The subgraph from a subspan
 
-//   const g = init('apa bepa . cepa depa . epa')
+//   let g = init('apa bepa . cepa depa . epa')
 //   target_text(subgraph(g, sentences(g, 3))) // => 'cepa depa . '
 
 // */
 // pub fn subgraph(g: Graph, s: Subspan): Graph {
-//   const source = g.source.slice(s.source.begin, s.source.end + 1)
-//   const target = g.target.slice(s.target.begin, s.target.end + 1)
-//   const proto_g = {source, target, edges: edge_record([])}
-//   const sm = source_map(proto_g)
-//   const tm = target_map(proto_g)
-//   const edges = record.filter(g.edges, e => e.ids.some(id => sm.has(id) || tm.has(id)))
+//   let source = g.source.slice(s.source.begin, s.source.end + 1)
+//   let target = g.target.slice(s.target.begin, s.target.end + 1)
+//   let proto_g = {source, target, edges: edge_record([])}
+//   let sm = source_map(proto_g)
+//   let tm = target_map(proto_g)
+//   let edges = record.filter(g.edges, e => e.ids.some(id => sm.has(id) || tm.has(id)))
 //   return {source, target, edges}
 // }
 
@@ -1213,9 +1266,9 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 //   side: Side,
 //   positions: number[]
 // ): {side: Side; index: number}[] {
-//   const N = target_text(g).length
-//   const nearby = Utils.flatMap(positions, i => [i - 1, i, i + 1])
-//   const in_bounds = nearby.filter(i => Utils.within(0, i, N))
+//   let N = target_text(g).length
+//   let nearby = Utils.flatMap(positions, i => [i - 1, i, i + 1])
+//   let in_bounds = nearby.filter(i => Utils.within(0, i, N))
 //   return in_bounds.map(i => ({
 //     side: side,
 //     index: T.token_at(get_side_texts(g, side), i).token,
@@ -1236,7 +1289,7 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 
 // /** Get a set of used labels.
 
-//   const g = {
+//   let g = {
 //     source: [{id: 's0', text: 'x '}, {id: 's1', text: 'y '}],
 //     target: [{id: 't0', text: 'x '}, {id: 't1', text: 'y '}],
 //     edges: {
@@ -1262,26 +1315,26 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 
 // /** Modify the labels at an identifier
 
-//   const g = init('word')
-//   const g2 = modify_labels(g, 'e-s0-t0', (labels: string[]) => [...labels, 'ABC'])
-//   const g3 = modify_labels(g2, 'e-s0-t0', (labels: string[]) => [...labels, 'DEF'])
+//   let g = init('word')
+//   let g2 = modify_labels(g, 'e-s0-t0', (labels: string[]) => [...labels, 'ABC'])
+//   let g3 = modify_labels(g2, 'e-s0-t0', (labels: string[]) => [...labels, 'DEF'])
 //   g3.edges['e-s0-t0'].labels // => ['ABC', 'DEF']
 
 // */
 // pub fn modify_labels(g: Graph, edge_id: string, k: (labels: string[]) => string[]): Graph {
-//   const store = Store.init(g)
-//   const edge = edge_store(store, edge_id)
+//   let store = Store.init(g)
+//   let edge = edge_store(store, edge_id)
 //   edge.modify(e => {
-//     const labels = k(e.labels)
-//     const comment = labels.some(is_comment_label) ? e.comment : undefined
+//     let labels = k(e.labels)
+//     let comment = labels.some(is_comment_label) ? e.comment : undefined
 //     return Edge(e.ids, labels, e.manual, comment)
 //   })
 //   return store.get()
 // }
 
 // pub fn comment_edge(g: Graph, edge_id: string, comment?: string) {
-//   const store = Store.init(g)
-//   const edge = edge_store(store, edge_id)
+//   let store = Store.init(g)
+//   let edge = edge_store(store, edge_id)
 //   edge.modify(e => Edge(e.ids, e.labels, e.manual, comment))
 //   return store.get()
 // }
@@ -1295,23 +1348,23 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 
 // /** Normalize the unique identifiers in this graph. Use before comparing deep equality.
 
-//   const g = modify_tokens(init('apa bepa cepa '), 1, 2, 'depa epa ')
+//   let g = modify_tokens(init('apa bepa cepa '), 1, 2, 'depa epa ')
 //   normalize(normalize(g)) // => normalize(g)
 
 //   // new graphs are in normal form, except that they are not marked as manual
-//   const g = init('apa bepa cepa ')
+//   let g = init('apa bepa cepa ')
 //   normalize(g, 'keep') // => g
 
-//   const g = init('x')
-//   const ab = {
+//   let g = init('x')
+//   let ab = {
 //     source: [{id: 'a0', text: 'x '}],
 //     target: [{id: 'b0', text: 'x '}],
 //     edges: {'e-a0-b0': {id: 'e-a0-b0', ids: ['a0', 'b0'], labels: [], manual: false}}
 //   }
 //   normalize(g, 'keep', 'a', 'b') // => ab
 
-//   const g = init('x')
-//   const same = {
+//   let g = init('x')
+//   let same = {
 //     source: [{id: '0', text: 'x '}],
 //     target: [{id: '1', text: 'x '}],
 //     edges: {'e-0-1': {id: 'e-0-1', ids: ['0', '1'], labels: [], manual: false}}
@@ -1325,20 +1378,20 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 //   s_prefix = 's',
 //   t_prefix = 't'
 // ): Graph {
-//   const rev = {} as Record<string, string>
-//   const rn = Utils.Renumber<string>()
+//   let rev = {} as Record<string, string>
+//   let rn = Utils.Renumber<string>()
 //   g.source.forEach(tk => rn.num(tk.id))
 //   g.target.forEach(tk => rn.num(tk.id))
-//   const N = g.source.length
-//   const new_id = (id: string) => {
-//     const i = rn.num(id)
+//   let N = g.source.length
+//   let new_id = (id: string) => {
+//     let i = rn.num(id)
 //     return i < N || s_prefix == t_prefix ? s_prefix + i : t_prefix + (i - N)
 //   }
-//   const source = g.source.map(s => Token(s.text, new_id(s.id)))
-//   const target = g.target.map(s => Token(s.text, new_id(s.id)))
-//   const edges = R.fromPairs(
+//   let source = g.source.map(s => Token(s.text, new_id(s.id)))
+//   let target = g.target.map(s => Token(s.text, new_id(s.id)))
+//   let edges = R.fromPairs(
 //     record.traverse(g.edges, e => {
-//       const E = Edge(
+//       let E = Edge(
 //         e.ids.map(new_id),
 //         e.labels.sort(),
 //         set_manual_to === 'keep' ? e.manual : set_manual_to,
@@ -1356,22 +1409,22 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 
 // /** Make all trailing whitespace of a specific form */
 // pub fn normalize_whitespace(g: Graph, ws = ' '): Graph {
-//   const on_tok = (s: Token) => Token((s.text.match(/\S+/) || [''])[0] + ws, s.id)
+//   let on_tok = (s: Token) => Token((s.text.match(/\S+/) || [''])[0] + ws, s.id)
 //   return {...g, source: g.source.map(on_tok), target: g.target.map(on_tok)}
 // }
 
 // /** Sets the target text to the source text, but preserving all labels and comments */
 // pub fn source_to_target(g: Graph, make_manual: boolean = true): Graph {
 //   let i = next_id(g)
-//   const rename_map: Record<string, string> = {}
-//   const target = g.source.map(s => {
-//     const id = 't' + i++
+//   let rename_map: Record<string, string> = {}
+//   let target = g.source.map(s => {
+//     let id = 't' + i++
 //     rename_map[s.id] = id
 //     return Token(s.text, id)
 //   })
-//   const edges = Utils.flatMap(Object.values(g.edges), e => {
-//     const ids = Utils.flatMap(e.ids, sid => {
-//       const tid = rename_map[sid]
+//   let edges = Utils.flatMap(Object.values(g.edges), e => {
+//     let ids = Utils.flatMap(e.ids, sid => {
+//       let tid = rename_map[sid]
 //       if (tid) {
 //         return [sid, tid]
 //       } else {
@@ -1397,12 +1450,12 @@ pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
 
 // /** Map from labels to edges where they are used.
 
-//   const g = modify_labels(init('apa bepa'), 'e-s1-t1', () => ['L', 'LL'])
+//   let g = modify_labels(init('apa bepa'), 'e-s1-t1', () => ['L', 'LL'])
 //   label_edge_map(g, l => l.length > 1) // => {'LL': [g.edges['e-s1-t1']]}
 //   label_edge_map(g) // => {'L': [g.edges['e-s1-t1']], 'LL': [g.edges['e-s1-t1']]}
 //  */
 // pub fn label_edge_map(g: Graph, filter?: (l: string) => boolean): Record<string, Edge[]> {
-//   const label_edge_map: Record<string, Edge[]> = {}
+//   let label_edge_map: Record<string, Edge[]> = {}
 //   record.forEach(g.edges, e =>
 //     e.labels.forEach(l => (!filter || filter(l)) && Utils.push(label_edge_map, l, e))
 //   )

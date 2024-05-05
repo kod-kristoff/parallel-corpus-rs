@@ -3,7 +3,7 @@
 // import {Lens, Store} from 'reactive-lens'
 // import * as Dmp from 'diff-match-patch'
 // pub const dmp = new Dmp.diff_match_patch() as Dmp.diff_match_patch
-
+pub mod union_find;
 // pub type TokenDiff = [number, string][]
 
 // interface Stringable {
@@ -156,6 +156,8 @@
 //     })
 //   })
 // }
+
+use std::collections::HashSet;
 
 /// Adds a final space if there is none
 pub fn end_with_space(s: String) -> String {
@@ -506,14 +508,24 @@ pub fn end_with_space(s: String) -> String {
 
 // /** Returns a copy of the array with duplicates removed, via toString */
 // pub fn uniq<A extends Stringable>(xs: A[]): A[] {
-//   const seen = {} as Record<string, boolean>
-//   return xs.filter(x => {
-//     const s = x.toString()
-//     const duplicate = s in seen
-//     seen[s] = true
-//     return !duplicate
-//   })
-// }
+pub fn uniq<A: ToString>(xs: Vec<A>) -> Vec<A> {
+    //   const seen = {} as Record<string, boolean>
+    let mut seen = HashSet::new();
+    xs.into_iter()
+        .filter(|x| {
+            let s = x.to_string();
+            let duplicate = seen.contains(&s);
+            seen.insert(s);
+            !duplicate
+        })
+        .collect()
+    //   return xs.filter(x => {
+    //     const s = x.toString()
+    //     const duplicate = s in seen
+    //     seen[s] = true
+    //     return !duplicate
+    //   })
+}
 
 // /** Order into the result of some fn.
 
@@ -569,115 +581,6 @@ pub fn end_with_space(s: String) -> String {
 // /** Removes adjacent elements that are equal, using === */
 // pub fn drop_adjacent_equal<A>(xs: A[]): A[] {
 //   return xs.filter((x, i) => i == 0 || x !== xs[i - 1])
-// }
-
-// /** Union-find data structure operations */
-// pub interface UnionFind<A> {
-//   /** What group does this belong to? */
-//   find(x: A): A
-//   /** Make these belong to the same group. */
-//   union(x: A, y: A): A
-//   /** Make these belong to the same group. */
-//   unions(xs: A[]): void
-// }
-
-// /** Make a union-find data structure
-
-//   const uf = UnionFind()
-//   uf.find(10) == uf.find(20) // => false
-//   uf.union(10, 20)
-//   uf.find(10) == uf.find(20) // => true
-//   uf.union(20, 30)
-//   uf.find(10) == uf.find(30) // => true
-//   uf.unions([10, 40, 50])
-//   uf.find(20) == uf.find(40) // => true
-//   uf.find(20) == uf.find(50) // => true
-// */
-// pub fn UnionFind(): UnionFind<number> {
-//   const rev = [] as number[]
-//   const find = (x: number) => {
-//     if (rev[x] == undefined) {
-//       rev[x] = x
-//     } else if (rev[x] != x) {
-//       rev[x] = find(rev[x])
-//     }
-//     return rev[x]
-//   }
-//   const union = (x: number, y: number) => {
-//     const find_x = find(x)
-//     const find_y = find(y)
-//     if (find_x != find_y) {
-//       rev[find_y] = find_x
-//     }
-//     return find_x
-//   }
-//   const unions = (xs: number[]) => {
-//     if (xs.length > 0) {
-//       xs.reduce(union, xs[0])
-//     }
-//   }
-//   return {find, union, unions}
-// }
-
-// /** Assign unique numbers to each distinct element
-
-//   const {un, num} = Renumber()
-//   num('foo') // => 0
-//   num('bar') // => 1
-//   num('foo') // => 0
-//   un(0) // => 'foo'
-//   un(1) // => 'bar'
-//   un(2) // => undefined
-
-//   const {un, num} = Renumber<string>(a => a.toLowerCase())
-//   num('foo') // => 0
-//   num('FOO') // => 0
-//   un(0) // => 'foo'
-// */
-// pub fn Renumber<A>(serialize = (a: A) => JSON.stringify(a)) {
-//   const bw: Record<string, number> = {}
-//   const fw: Record<string, A> = {}
-//   let i = 0
-//   return {
-//     /** What number does (the serialization of) this element have? */
-//     num(a: A) {
-//       const s = serialize(a)
-//       if (!(s in bw)) {
-//         fw[i] = a
-//         bw[s] = i++
-//       }
-//       return bw[s]
-//     },
-//     /** What is the serialization of any element that has this number? */
-//     un(n: number) {
-//       return fw[n]
-//     },
-//   }
-// }
-
-// /** Make a polymorphic union-find data structure
-
-//   const uf = PolyUnionFind<string>(a => a.toLowerCase())
-//   uf.repr('a') // => 0
-//   uf.repr('A') // => 0
-//   uf.find('a') // => 'a'
-//   uf.find('A') // => 'a'
-//   uf.find('a') == uf.find('b') // => false
-//   uf.union('A', 'B')
-//   uf.find('a') == uf.find('b') // => true
-// */
-// pub fn PolyUnionFind<A>(
-//   serialize = (a: A) => JSON.stringify(a)
-// ): UnionFind<A> & {repr: (a: A) => number} {
-//   const {un, num} = Renumber(serialize)
-//   const uf = UnionFind()
-//   return {
-//     /** What number does the group of this element have? */
-//     repr: x => uf.find(num(x)),
-//     find: x => un(uf.find(num(x))),
-//     union: (x, y) => un(uf.union(num(x), num(y))),
-//     unions: xs => uf.unions(xs.map(num)),
-//   }
 // }
 
 // pub fn guard<A>(p: boolean | string | undefined, x: A): A[] {

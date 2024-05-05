@@ -194,7 +194,7 @@ impl Token {
 /// # Examples
 ///
 /// ```
-/// use graph_rs::tokenize;  
+/// use parallel_corpus::tokenize;  
 /// assert_eq!(tokenize(""), Vec::<String>::new());
 /// assert_eq!(tokenize(" "), vec![String::from(" ")]);
 /// ```
