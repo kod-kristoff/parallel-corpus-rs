@@ -173,31 +173,32 @@ pub struct Graph {
 // pub fn is_graph(g: any): g is Graph {
 //   return check_invariant(g) === 'ok'
 // }
+impl Graph {
+    /// Makes spans from an original text by tokenizing it and assumes no changes
+    ///
+    // # Examples
+    //   const g = init('w1 w2')
+    //   const source = [{text: 'w1 ', id: 's0'}, {text: 'w2 ', id: 's1'}]
+    //   const target = [{text: 'w1 ', id: 't0'}, {text: 'w2 ', id: 't1'}]
+    //   const edges = edge_record([Edge(['s0', 't0'], []), Edge(['s1', 't1'], [])])
+    //   g // => {source, target, edges}
 
-/// Makes spans from an original text by tokenizing it and assumes no changes
-///
-// # Examples
-//   const g = init('w1 w2')
-//   const source = [{text: 'w1 ', id: 's0'}, {text: 'w2 ', id: 's1'}]
-//   const target = [{text: 'w1 ', id: 't0'}, {text: 'w2 ', id: 't1'}]
-//   const edges = edge_record([Edge(['s0', 't0'], []), Edge(['s1', 't1'], [])])
-//   g // => {source, target, edges}
+    // */
+    pub fn init(s: &str) -> Graph {
+        //   return init_from(T.tokenize(s), manual)
+        Self::init_from(token::tokenize(s), false)
+    }
 
-// */
-pub fn init(s: &str) -> Graph {
-    //   return init_from(T.tokenize(s), manual)
-    init_from(token::tokenize(s), false)
-}
-
-/// Makes a graph from tokens
-pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
-    //   return align({
-    //     source: T.identify(tokens, 's'),
-    //     target: T.identify(tokens, 't'),
-    //     edges: edge_record(tokens.map((_, i) => Edge(['s' + i, 't' + i], [], manual))),
-    //   })
-    Graph {
-        source: token::identify(tokens, "s"),
+    /// Makes a graph from tokens
+    pub fn init_from(tokens: Vec<String>, manual: bool) -> Graph {
+        //   return align({
+        //     source: T.identify(tokens, 's'),
+        //     target: T.identify(tokens, 't'),
+        //     edges: edge_record(tokens.map((_, i) => Edge(['s' + i, 't' + i], [], manual))),
+        //   })
+        Graph {
+            source: token::identify(tokens, "s"),
+        }
     }
 }
 
