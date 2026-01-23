@@ -15,8 +15,8 @@ mod tests;
 // }
 #[derive(Debug, PartialEq)]
 pub struct Token {
-    text: String,
-    id: String,
+    pub text: String,
+    pub id: String,
 }
 
 impl Token {

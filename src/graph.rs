@@ -1,3 +1,9 @@
+use std::collections::HashMap;
+
+use crate::map_sides;
+use crate::shared;
+use crate::shared::union_find;
+use crate::SourceTarget;
 // /** Parallel corpus as a graph */
 use crate::token;
 use crate::Token;
@@ -36,10 +42,12 @@ mod tests;
 // }
 #[derive(Debug)]
 pub struct Graph {
-    source: Vec<Token>,
+    st: SourceTarget<Vec<Token>>,
+    edges: Edges,
 }
 
 // pub type Edges = Record<string, Edge>
+pub type Edges = HashMap<String, Edge>;
 
 // pub interface Edge {
 //   /** a copy of the identifier used in the edges object of the graph */
@@ -53,6 +61,18 @@ pub struct Graph {
 //   readonly comment?: string
 // }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct Edge {
+    /// a copy of the identifier used in the edges object of the graph
+    id: String,
+    /// these are ids to source and target tokens
+    ids: Vec<String>,
+    /// labels on this edge
+    labels: Vec<String>,
+    /// is this manually or automatically aligned
+    manual: bool,
+    comment: Option<String>,
+}
 // pub fn Edge(ids: string[], labels: string[], manual = false, comment?: string): Edge {
 //   const ids_sorted = ids.sort()
 //   const labels_nub = Utils.uniq(labels)
@@ -64,7 +84,23 @@ pub struct Graph {
 //     ...(comment && labels_nub.some(is_comment_label) ? {comment} : {}),
 //   }
 // }
-
+pub fn edge(
+    mut ids: Vec<String>,
+    labels: Vec<String>,
+    manual: bool,
+    comment: Option<String>,
+) -> Edge {
+    ids.sort();
+    let labels_nub = shared::uniq(labels);
+    let id = format!("e-{}", ids.as_slice().join("-"));
+    Edge {
+        id,
+        ids,
+        labels: labels_nub,
+        manual,
+        comment,
+    }
+}
 // pub fn merge_edges(...es: Edge[]) {
 //   return Edge(
 //     Utils.flatMap(es, e => e.ids),
@@ -81,6 +117,9 @@ pub struct Graph {
 //   es.forEach(e => (out[e.id] = e))
 //   return out
 // }
+pub fn edge_record(es: impl Iterator<Item = Edge>) -> Edges {
+    es.map(|e| (e.id.clone(), e)).collect()
+}
 
 // /** Checks that the invariant of the graph holds
 
@@ -174,8 +213,8 @@ pub struct Graph {
 //   return check_invariant(g) === 'ok'
 // }
 impl Graph {
-    /// Makes spans from an original text by tokenizing it and assumes no changes
-    ///
+    // / Makes spans from an original text by tokenizing it and assumes no changes
+    // /
     // # Examples
     //   const g = init('w1 w2')
     //   const source = [{text: 'w1 ', id: 's0'}, {text: 'w2 ', id: 's1'}]
@@ -196,9 +235,24 @@ impl Graph {
         //     target: T.identify(tokens, 't'),
         //     edges: edge_record(tokens.map((_, i) => Edge(['s' + i, 't' + i], [], manual))),
         //   })
+        let es = tokens.iter().enumerate().map(|(i, _)| {
+            edge(
+                vec![format!("s{i}"), format!("t{i}")],
+                Vec::new(),
+                manual,
+                None,
+            )
+        });
+        let edges = edge_record(es);
+        // align(
         Graph {
-            source: token::identify(tokens, "s"),
+            st: SourceTarget {
+                source: token::identify(tokens.clone(), "s"),
+                target: token::identify(tokens, "t"),
+            },
+            edges,
         }
+        // )
     }
 }
 
@@ -277,6 +331,28 @@ impl Graph {
 //     Utils.flatten(record.traverse(g.edges, e => e.ids.map(id => [id, e] as [string, Edge])))
 //   )
 // }
+
+/// Map from token ids to edges
+
+//   const g = init('w')
+//   const e = Edge(['s0', 't0'], [])
+//   const lhs = [...edge_map(g).entries()]
+//   const rhs = [['s0', e], ['t0', e]]
+//   lhs // => rhs
+
+// */
+pub fn edge_map(g: &Graph) -> HashMap<String, Edge> {
+    let mut map = HashMap::new();
+    for e in g.edges.values() {
+        for id in &e.ids {
+            map.insert(id.clone(), (*e).clone());
+        }
+    }
+    map
+    //   return new Map(
+    //     Utils.flatten(record.traverse(g.edges, e => e.ids.map(id => [id, e] as [string, Edge])))
+    //   )
+}
 
 // /** The edges from a set of ids
 
@@ -765,6 +841,10 @@ impl Graph {
 //   char: string
 //   id?: string
 // }
+struct CharIdPair {
+    chr: char,
+    id: Option<String>,
+}
 
 // /**
 
@@ -779,6 +859,16 @@ impl Graph {
 // fn to_char_ids(token: Token): CharIdPair[] {
 //   return Utils.str_map(token.text, char => ({char, id: char === ' ' ? undefined : token.id}))
 // }
+fn to_char_ids(token: &Token) -> Vec<CharIdPair> {
+    shared::str_map(&token.text, |c, _i| CharIdPair {
+        chr: c,
+        id: if c == ' ' {
+            None
+        } else {
+            Some(token.id.clone())
+        },
+    })
+}
 
 // /** Create edges automatically between similar sequences of tokens.
 
@@ -840,6 +930,81 @@ impl Graph {
 
 //   return {...g, edges}
 // }
+
+// / Create edges automatically between similar sequences of tokens.
+
+//   const g0 = {...init('a bc d')}
+//   const g = unaligned_set_side(g0, 'target', 'ab c d')
+//   Object.values(align(g).edges).length // => 2
+// */
+pub fn align(g: Graph) -> Graph {
+    // Use a union-find to group characters into edges.
+    let mut uf = union_find::PolyUnionFind::new(Box::new(|u: &String| u.clone()));
+    let em = edge_map(&g);
+    let chars = map_sides(&g.st, |tokens, _side| {
+        let mut res = Vec::new();
+        for mut v in tokens
+            .iter()
+            .filter(|token| !em[&token.id].manual)
+            .map(to_char_ids)
+        {
+            res.append(&mut v);
+        }
+        res
+    });
+    //   const uf = Utils.PolyUnionFind<string>(u => u)
+    //   const em = Utils.chain(edge_map(g), m => (id: string): Edge =>
+    //     m.get(id) || Utils.raise(`Token id ${id} not in edge map`)
+    //   )
+
+    //   {
+    //     // Character by character, what was deleted and inserted?
+    //     const chars = mapSides(g, tokens =>
+    //       Utils.flatMap(tokens.filter(token => !em(token.id).manual), to_char_ids)
+    //     )
+    //     const char_diff = Utils.hdiff(chars.source, chars.target, u => u.char, u => u.char)
+
+    //     // For any unchanged character, unify its source and target tokens.
+    //     // If source is "a bc" and target is "ab c", all characters will be unified to the same group.
+    //     // The union-find operates over token ids, so an edge is represented by a "root" token id.
+    //     char_diff.forEach(c => {
+    //       if (c.change == 0) {
+    //         // these undefined makes the alignment skip spaces.
+    //         // they originate from to_char_ids
+    //         if (c.a.id !== undefined && c.b.id !== undefined) {
+    //           uf.union(c.a.id, c.b.id)
+    //         }
+    //       }
+    //     })
+    //   }
+
+    //   // Use manual edges as they are.
+    //   const proto_edges = record.filter(g.edges, e => !!e.manual)
+
+    //   const first = Utils.unique_check<string>()
+
+    //   mapSides(g, (tokens, side) =>
+    //     tokens.forEach(token => {
+    //       let e_repr = em(token.id)
+    //       // Skip manual edges, they have already been added.
+    //       if (!e_repr.manual) {
+    //         // Use the labels from the old edge.
+    //         const labels = first(e_repr.id) ? e_repr.labels : []
+    //         // New edges are temporarily keyed by the "root" token id.
+    //         // Merge a single-token edge into the edge that has the same "root" token.
+    //         // Or add as a new edge if there is no such edge yet.
+    //         const e_token = Edge([token.id], labels, false, e_repr.comment)
+    //         record.modify(proto_edges, uf.find(token.id), zero_edge, e => merge_edges(e, e_token))
+    //       }
+    //     })
+    //   )
+
+    //   // Re-key edges.
+    //   const edges = edge_record(record.traverse(proto_edges, e => e))
+
+    //   return {...g, edges}
+    todo!()
+}
 
 // interface ScoreDiffPair {
 //   score: number
